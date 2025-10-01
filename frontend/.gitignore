@@ -1,0 +1,27 @@
+# Environment variables
+.env
+*.env
+backend/.env
+frontend/.env
+
+# API keys
+*_API_KEY*
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+venv/
+__pycache__/
+
+# Build
+dist/
+build/
+
+# Database
+chroma_db/
+*.db
+
+# Uploads
+uploads/
