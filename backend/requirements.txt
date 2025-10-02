@@ -18,9 +18,12 @@ chromadb==0.5.5
 # PDF & Document Processing
 pypdf==4.3.1
 
-# Retrieval & Ranking
+# Retrieval & Ranking - UPDATED VERSIONS
 rank-bm25==0.2.2
-sentence-transformers==2.2.2
+sentence-transformers==3.1.1
+transformers==4.45.2
+torch==2.5.1
+huggingface-hub==0.25.2
 
 # Utilities
 requests==2.32.3
