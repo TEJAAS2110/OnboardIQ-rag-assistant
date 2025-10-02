@@ -105,10 +105,10 @@ def health():
     return {
         "status": "healthy",
         "rag_enabled": HAS_RAG,
+        "rag_error": RAG_ERROR if not HAS_RAG else None,
         "documents_loaded": len(documents_store),
         "chunks_loaded": len(vector_store)
     }
-
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile = File(...)):
     try:
