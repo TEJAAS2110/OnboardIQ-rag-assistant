@@ -23,5 +23,24 @@ build/
 chroma_db/
 *.db
 
+
 # Uploads
 uploads/
+
+# dependencies
+node_modules
+
+# production
+dist
+build
+
+# environment variables
+.env
+.env.local
+.env.production
+
+# logs
+*.log
+
+# misc
+.DS_Store
