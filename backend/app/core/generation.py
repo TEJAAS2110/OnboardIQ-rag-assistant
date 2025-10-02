@@ -11,7 +11,12 @@ class AnswerGenerator:
     """
     
     def __init__(self):
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        # Initialize OpenAI - FIXED VERSION
+        self.openai_client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=60.0,
+            max_retries=3
+        )
     
     def generate_answer(
         self,
@@ -65,6 +70,8 @@ class AnswerGenerator:
         
         except Exception as e:
             print(f"❌ Error generating answer: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "answer": f"I encountered an error generating the answer: {str(e)}",
                 "citations": [],
@@ -77,12 +84,12 @@ class AnswerGenerator:
         formatted_parts = []
         
         for i, chunk in enumerate(chunks, 1):
-            metadata = chunk['metadata']
+            metadata = chunk.get('metadata', {})
             file_name = metadata.get('file_name', 'Unknown')
             page_num = metadata.get('page_number', 'N/A')
             
             formatted_parts.append(
-                f"[Source {i}] (File: {file_name}, Page: {page_num})\n{chunk['text']}\n"
+                f"[Source {i}] (File: {file_name}, Page: {page_num})\n{chunk.get('text', '')}\n"
             )
         
         return "\n---\n".join(formatted_parts)
@@ -117,7 +124,7 @@ Example:
         
         # Add conversation history if provided
         if history:
-            messages.extend(history[-6:])  # Last 3 turns (user + assistant)
+            messages.extend(history[-6:])
         
         # Add current query with context
         user_message = f"""Context from company documents:
@@ -141,7 +148,6 @@ Please provide a clear, well-cited answer based on the context above."""
     ) -> List[Dict[str, Any]]:
         """Extract citation references and map to actual sources"""
         
-        # Find all [Source X] patterns
         citation_pattern = r'\[Source (\d+(?:,\s*\d+)*)\]'
         matches = re.finditer(citation_pattern, answer)
         
@@ -153,15 +159,15 @@ Please provide a clear, well-cited answer based on the context above."""
             
             for source_id in source_ids:
                 if source_id <= len(context_chunks) and source_id not in seen_sources:
-                    chunk = context_chunks[source_id - 1]  # 0-indexed
-                    metadata = chunk['metadata']
+                    chunk = context_chunks[source_id - 1]
+                    metadata = chunk.get('metadata', {})
                     
                     citations.append({
                         'source_id': source_id,
                         'file_name': metadata.get('file_name', 'Unknown'),
                         'page_number': metadata.get('page_number', 'N/A'),
-                        'text_snippet': chunk['text'][:200] + "...",  # Preview
-                        'full_text': chunk['text'],
+                        'text_snippet': chunk.get('text', '')[:200] + "...",
+                        'full_text': chunk.get('text', ''),
                         'relevance_score': chunk.get('final_score', 0.0)
                     })
                     
@@ -170,35 +176,28 @@ Please provide a clear, well-cited answer based on the context above."""
         return citations
     
     def _calculate_confidence(self, chunks: List[Dict], answer: str) -> float:
-        """
-        Calculate confidence score based on:
-        - Retrieval scores of top chunks
-        - Number of citations used
-        - Answer length vs query complexity
-        """
+        """Calculate confidence score"""
         if not chunks:
             return 0.0
         
-        # Average of top 3 retrieval scores (normalized to 0-1)
+        # Average of top 3 retrieval scores
         top_scores = [c.get('final_score', 0) for c in chunks[:3]]
-        avg_score = sum(top_scores) / len(top_scores)
+        avg_score = sum(top_scores) / len(top_scores) if top_scores else 0
         
-        # Normalize based on typical score ranges
-        # Cross-encoder scores typically range from -10 to +10
+        # Normalize (cross-encoder scores typically -10 to +10)
         normalized_score = (avg_score + 10) / 20
         normalized_score = max(0.0, min(1.0, normalized_score))
         
-        # Citation coverage bonus (if answer has citations)
+        # Citation bonus
         has_citations = '[Source' in answer
         citation_bonus = 0.1 if has_citations else 0.0
         
-        # Calculate final confidence
         confidence = min(1.0, normalized_score + citation_bonus)
         
         return round(confidence, 2)
     
     def generate_summary(self, document_text: str, file_name: str) -> str:
-        """Generate document summary for bonus feature"""
+        """Generate document summary"""
         
         prompt = f"""Provide a concise summary of this document in 3-4 sentences. 
 Focus on the key information and main topics covered.
@@ -206,7 +205,7 @@ Focus on the key information and main topics covered.
 Document: {file_name}
 
 Content:
-{document_text[:3000]}  
+{document_text[:3000]}
 
 Summary:"""
         
@@ -222,33 +221,3 @@ Summary:"""
         
         except Exception as e:
             return f"Error generating summary: {str(e)}"
-
-
-# Test generation
-if __name__ == "__main__":
-    generator = AnswerGenerator()
-    
-    # Mock context chunks
-    mock_chunks = [
-        {
-            'text': 'Employees are entitled to 15 days of paid leave per year.',
-            'metadata': {'file_name': 'handbook.pdf', 'page_number': '5'},
-            'final_score': 8.5
-        },
-        {
-            'text': 'Leave requests must be submitted 2 weeks in advance.',
-            'metadata': {'file_name': 'handbook.pdf', 'page_number': '5'},
-            'final_score': 7.2
-        }
-    ]
-    
-    result = generator.generate_answer(
-        "How many days of leave do I get?",
-        mock_chunks
-    )
-    
-    print(f"\n💬 Answer: {result['answer']}")
-    print(f"\n📊 Confidence: {result['confidence']}")
-    print(f"\n📚 Citations ({len(result['citations'])}):")
-    for cite in result['citations']:
-        print(f"   - {cite['file_name']}, Page {cite['page_number']}")
