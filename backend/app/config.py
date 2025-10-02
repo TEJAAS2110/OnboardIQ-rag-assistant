@@ -1,21 +1,31 @@
 import os
 from dotenv import load_dotenv
+from functools import lru_cache
+from pydantic_settings import BaseSettings
 
-load_dotenv()
+class Settings(BaseSettings):
+    # OpenAI Configuration
+    OPENAI_API_KEY: str = ""
+    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    LLM_MODEL: str = "gpt-4o-mini"
+    
+    # ChromaDB Configuration
+    CHROMA_PERSIST_DIR: str = "./chroma_db"
+    COLLECTION_NAME: str = "onboardiq_docs"
+    
+    # Chunking Configuration
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+    
+    # Retrieval Configuration
+    TOP_K: int = 5
+    SIMILARITY_THRESHOLD: float = 0.7
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
 
-# OpenAI Configuration
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
-LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
-
-# ChromaDB Configuration
-CHROMA_PERSIST_DIR = os.getenv("CHROMA_PERSIST_DIR", "./chroma_db")
-COLLECTION_NAME = os.getenv("COLLECTION_NAME", "onboardiq_docs")
-
-# Chunking Configuration
-CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
-CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
-
-# Retrieval Configuration
-TOP_K = int(os.getenv("TOP_K", "5"))
-SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.7"))
+@lru_cache()
+def get_settings():
+    load_dotenv()
+    return Settings()
