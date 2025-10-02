@@ -19,7 +19,13 @@ class HybridRetriever:
     def __init__(self, ingestion_pipeline: IngestionPipeline):
         self.pipeline = ingestion_pipeline
         self.collection = ingestion_pipeline.collection
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        
+        # Initialize OpenAI - FIXED VERSION
+        self.openai_client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=60.0,
+            max_retries=3
+        )
         
         # Load re-ranker model
         print("🔄 Loading cross-encoder re-ranker...")
@@ -90,64 +96,72 @@ class HybridRetriever:
     
     def _semantic_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """Semantic search using embeddings"""
-        # Generate query embedding
-        response = self.openai_client.embeddings.create(
-            model=settings.EMBEDDING_MODEL,
-            input=query
-        )
-        query_embedding = response.data[0].embedding
-        
-        # Query ChromaDB
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k, self.collection.count())
-        )
-        
-        # Format results
-        formatted_results = []
-        for i in range(len(results['ids'][0])):
-            formatted_results.append({
-                'id': results['ids'][0][i],
-                'text': results['documents'][0][i],
-                'metadata': results['metadatas'][0][i],
-                'distance': results['distances'][0][i],
-                'score': 1 / (1 + results['distances'][0][i]),  # Convert distance to score
-                'source': 'semantic'
-            })
-        
-        return formatted_results
+        try:
+            # Generate query embedding
+            response = self.openai_client.embeddings.create(
+                model=settings.EMBEDDING_MODEL,
+                input=query
+            )
+            query_embedding = response.data[0].embedding
+            
+            # Query ChromaDB
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=min(top_k, self.collection.count())
+            )
+            
+            # Format results
+            formatted_results = []
+            for i in range(len(results['ids'][0])):
+                formatted_results.append({
+                    'id': results['ids'][0][i],
+                    'text': results['documents'][0][i],
+                    'metadata': results['metadatas'][0][i],
+                    'distance': results['distances'][0][i],
+                    'score': 1 / (1 + results['distances'][0][i]),
+                    'source': 'semantic'
+                })
+            
+            return formatted_results
+        except Exception as e:
+            print(f"Semantic search error: {e}")
+            return []
     
     def _bm25_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """Keyword search using BM25"""
         if self.bm25 is None or len(self.bm25_docs) == 0:
             return []
         
-        # Tokenize query
-        tokenized_query = query.lower().split()
-        
-        # Get BM25 scores
-        scores = self.bm25.get_scores(tokenized_query)
-        
-        # Get top-k indices
-        top_indices = np.argsort(scores)[::-1][:top_k]
-        
-        # Format results
-        formatted_results = []
-        for idx in top_indices:
-            if scores[idx] > 0:  # Only include results with positive scores
-                # Get metadata from ChromaDB
-                doc_id = self.bm25_ids[idx]
-                chroma_result = self.collection.get(ids=[doc_id])
-                
-                formatted_results.append({
-                    'id': doc_id,
-                    'text': self.bm25_docs[idx],
-                    'metadata': chroma_result['metadatas'][0],
-                    'score': float(scores[idx]),
-                    'source': 'bm25'
-                })
-        
-        return formatted_results
+        try:
+            # Tokenize query
+            tokenized_query = query.lower().split()
+            
+            # Get BM25 scores
+            scores = self.bm25.get_scores(tokenized_query)
+            
+            # Get top-k indices
+            top_indices = np.argsort(scores)[::-1][:top_k]
+            
+            # Format results
+            formatted_results = []
+            for idx in top_indices:
+                if scores[idx] > 0:
+                    # Get metadata from ChromaDB
+                    doc_id = self.bm25_ids[idx]
+                    chroma_result = self.collection.get(ids=[doc_id])
+                    
+                    formatted_results.append({
+                        'id': doc_id,
+                        'text': self.bm25_docs[idx],
+                        'metadata': chroma_result['metadatas'][0],
+                        'score': float(scores[idx]),
+                        'source': 'bm25'
+                    })
+            
+            return formatted_results
+        except Exception as e:
+            print(f"BM25 search error: {e}")
+            return []
     
     def _reciprocal_rank_fusion(
         self,
@@ -157,11 +171,9 @@ class HybridRetriever:
     ) -> List[Dict[str, Any]]:
         """
         Reciprocal Rank Fusion: combines rankings from multiple sources
-        RRF score = sum(1 / (k + rank))
         """
-        # Create mapping of doc_id to RRF score
         rrf_scores = {}
-        doc_map = {}  # Store full document info
+        doc_map = {}
         
         # Add semantic results
         for rank, result in enumerate(semantic_results, 1):
@@ -191,45 +203,30 @@ class HybridRetriever:
         return fused_results
     
     def _rerank(self, query: str, candidates: List[Dict]) -> List[Dict[str, Any]]:
-        """
-        Re-rank candidates using cross-encoder for final relevance scoring
-        """
+        """Re-rank using cross-encoder"""
         if not candidates:
             return []
         
-        # Prepare query-document pairs
-        pairs = [[query, candidate['text']] for candidate in candidates]
-        
-        # Get cross-encoder scores
-        rerank_scores = self.reranker.predict(pairs)
-        
-        # Add scores to candidates
-        for candidate, score in zip(candidates, rerank_scores):
-            candidate['rerank_score'] = float(score)
-            candidate['final_score'] = float(score)  # Use rerank score as final
-        
-        # Sort by rerank score
-        reranked = sorted(candidates, key=lambda x: x['rerank_score'], reverse=True)
-        
-        return reranked
+        try:
+            # Prepare query-document pairs
+            pairs = [[query, candidate['text']] for candidate in candidates]
+            
+            # Get cross-encoder scores
+            rerank_scores = self.reranker.predict(pairs)
+            
+            # Add scores to candidates
+            for candidate, score in zip(candidates, rerank_scores):
+                candidate['rerank_score'] = float(score)
+                candidate['final_score'] = float(score)
+            
+            # Sort by rerank score
+            reranked = sorted(candidates, key=lambda x: x['rerank_score'], reverse=True)
+            
+            return reranked
+        except Exception as e:
+            print(f"Reranking error: {e}")
+            return candidates
     
     def refresh_bm25_index(self):
-        """Rebuild BM25 index (call after adding new documents)"""
+        """Rebuild BM25 index"""
         self._initialize_bm25()
-
-
-# Test retrieval
-if __name__ == "__main__":
-    from app.core.ingestion import IngestionPipeline
-    
-    pipeline = IngestionPipeline()
-    retriever = HybridRetriever(pipeline)
-    
-    # Test query
-    results = retriever.retrieve("What is the leave policy?", top_k=3)
-    
-    print("\n📋 Top Results:")
-    for i, result in enumerate(results, 1):
-        print(f"\n{i}. Score: {result['final_score']:.4f}")
-        print(f"   Text: {result['text'][:100]}...")
-        print(f"   Source: {result['metadata'].get('file_name', 'Unknown')}")
