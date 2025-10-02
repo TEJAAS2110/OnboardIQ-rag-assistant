@@ -1,6 +1,7 @@
 import axios from 'axios';
 
-const API_BASE_URL = 'https://onboardiiq-api.onrender.com';
+// Use environment variable, fallback to your Render URL
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://onboardiiq-api.onrender.com';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -42,6 +43,12 @@ export const submitFeedback = async (query, answer, rating) => {
     answer,
     rating,
   });
+  return response.data;
+};
+
+// Export health check function
+export const checkHealth = async () => {
+  const response = await api.get('/health');
   return response.data;
 };
 
