@@ -1,5 +1,4 @@
 import chromadb
-from chromadb.config import Settings as ChromaSettings
 from openai import OpenAI
 from typing import List, Dict, Any
 import uuid
@@ -15,10 +14,9 @@ class IngestionPipeline:
     """
     
     def __init__(self):
-        # Initialize ChromaDB
+        # Initialize ChromaDB - FIXED VERSION
         self.chroma_client = chromadb.PersistentClient(
-            path=settings.CHROMA_PERSIST_DIR,
-            settings=ChromaSettings(anonymized_telemetry=False)
+            path=settings.CHROMA_PERSIST_DIR
         )
         
         # Get or create collection
@@ -28,7 +26,11 @@ class IngestionPipeline:
         )
         
         # Initialize OpenAI for embeddings
-        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.openai_client = OpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            timeout=60.0,
+            max_retries=3
+        )
         
         # Initialize processors
         self.doc_processor = DocumentProcessor()
@@ -81,6 +83,8 @@ class IngestionPipeline:
         
         except Exception as e:
             print(f"❌ Error ingesting document: {e}")
+            import traceback
+            traceback.print_exc()
             return {
                 "success": False,
                 "error": str(e)
@@ -181,16 +185,3 @@ class IngestionPipeline:
         except Exception as e:
             print(f"Error deleting document: {e}")
             return False
-
-
-# Test ingestion
-if __name__ == "__main__":
-    pipeline = IngestionPipeline()
-    
-    # Test with a document
-    result = pipeline.ingest_document("sample.pdf")
-    print(f"\nIngestion result: {result}")
-    
-    # Get stats
-    stats = pipeline.get_stats()
-    print(f"\nDatabase stats: {stats}")
