@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import './App.css'
-import ChatInterface from './components/Chat/ChatInterface'
+import ChatInterface from './components/chat/ChatInterface.jsx';
 import { listDocuments, uploadDocument, checkHealth } from './services/api'
 
 function App() {
