@@ -1,7 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import os
 import shutil
 
@@ -98,10 +98,3 @@ def get_stats():
         "embedding_model": "text-embedding-3-small",
         "llm_model": "gpt-4o-mini"
     }
-
-
-# ✅ Only change needed for Render:
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))  # Use Render’s $PORT
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
