@@ -19,7 +19,15 @@ class Settings(BaseSettings):
     
     # Retrieval Configuration
     TOP_K: int = 5
+    TOP_K_SEMANTIC: int = 20
+    TOP_K_BM25: int = 20
+    TOP_K_RERANK: int = 10
+    FINAL_TOP_K: int = 5
     SIMILARITY_THRESHOLD: float = 0.7
+    
+    # Generation Configuration
+    TEMPERATURE: float = 0.3
+    MAX_TOKENS: int = 1000
     
     class Config:
         env_file = ".env"
