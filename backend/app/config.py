@@ -1,21 +1,22 @@
 from pydantic_settings import BaseSettings
-from functools import lru_cache
+from typing import Optional
+import os
 
 class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str
+    
+    # Models
     EMBEDDING_MODEL: str = "text-embedding-3-small"
     LLM_MODEL: str = "gpt-4o-mini"
     
     # ChromaDB
     CHROMA_PERSIST_DIR: str = "./chroma_db"
-    COLLECTION_NAME: str = "company_documents"
+    COLLECTION_NAME: str = "onboardiq_knowledge"
     
-    # Document Processing
-    UPLOAD_DIR: str = "./uploads"
-    MAX_FILE_SIZE: int = 10485760
-    CHUNK_SIZE: int = 500
-    CHUNK_OVERLAP: int = 50
+    # Chunking
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
     
     # Retrieval
     TOP_K_SEMANTIC: int = 20
@@ -24,12 +25,17 @@ class Settings(BaseSettings):
     FINAL_TOP_K: int = 5
     
     # Generation
-    MAX_TOKENS: int = 1000
     TEMPERATURE: float = 0.3
+    MAX_TOKENS: int = 1000
     
     class Config:
         env_file = ".env"
+        extra = "allow"
 
-@lru_cache()
-def get_settings():
-    return Settings()
+_settings = None
+
+def get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings()
+    return _settings
