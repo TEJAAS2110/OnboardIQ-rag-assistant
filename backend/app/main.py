@@ -6,6 +6,30 @@ import os
 import shutil
 from dotenv import load_dotenv
 
+# Add this debugging code
+import sys
+print("=" * 50)
+print("DEBUGGING FILE STRUCTURE")
+print("=" * 50)
+print(f"Python path: {sys.path}")
+print(f"Current directory: {os.getcwd()}")
+
+# Check if files exist
+import os
+files_to_check = [
+    "app/config.py",
+    "app/core/ingestion.py",
+    "app/core/retrieval.py",
+    "app/core/generation.py",
+    "app/utils/document_processor.py",
+    "app/utils/chunking.py",
+]
+
+for file in files_to_check:
+    exists = os.path.exists(file)
+    print(f"{'✅' if exists else '❌'} {file}")
+
+print("=" * 50)
 # Load environment variables
 load_dotenv()
 
