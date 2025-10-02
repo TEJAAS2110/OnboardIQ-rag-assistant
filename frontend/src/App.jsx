@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 import ChatInterface from './components/Chat/ChatInterface'
-import { listDocuments } from './services/api'
+import { listDocuments, uploadDocument, checkHealth } from './services/api'
 
 function App() {
   const [stats, setStats] = useState({
@@ -13,7 +13,7 @@ function App() {
 
   useEffect(() => {
     loadStats()
-    checkHealth()
+    checkHealthStatus()
   }, [uploadKey])
 
   const loadStats = async () => {
@@ -30,10 +30,10 @@ function App() {
     }
   }
 
-  const checkHealth = async () => {
+  const checkHealthStatus = async () => {
     try {
-      const response = await fetch('http://localhost:8000/health')
-      setIsOnline(response.ok)
+      await checkHealth()
+      setIsOnline(true)
     } catch {
       setIsOnline(false)
     }
@@ -54,31 +54,23 @@ function App() {
     uploadBtn.textContent = '⏳ Uploading...'
     uploadBtn.disabled = true
 
-    const formData = new FormData()
-    formData.append('file', file)
-
     try {
-      const response = await fetch('http://localhost:8000/documents/upload', {
-        method: 'POST',
-        body: formData,
-      })
+      const result = await uploadDocument(file)
       
-      if (response.ok) {
-        const result = await response.json()
+      if (result.success) {
         alert(`✅ Document uploaded successfully!\n\n📄 ${result.file_name}\n📊 Created ${result.chunks_created} chunks\n💾 ${(file.size / 1024).toFixed(1)} KB`)
         setUploadKey(prev => prev + 1)
       } else {
-        const error = await response.json()
-        alert('❌ Upload failed: ' + (error.detail || 'Unknown error'))
+        alert('❌ Upload failed: ' + (result.error || 'Unknown error'))
       }
     } catch (error) {
       console.error('Upload error:', error)
-      alert('❌ Connection error. Make sure backend is running on port 8000')
+      alert('❌ Connection error. Make sure backend is running and CORS is enabled')
       setIsOnline(false)
     } finally {
       uploadBtn.textContent = originalText
       uploadBtn.disabled = false
-      event.target.value = '' // Reset input
+      event.target.value = ''
     }
   }
 
@@ -86,6 +78,10 @@ function App() {
     setUploadKey(prev => prev + 1)
     loadStats()
   }
+
+  const API_DOCS_URL = import.meta.env.VITE_API_URL 
+    ? `${import.meta.env.VITE_API_URL}/docs`
+    : 'https://onboardiiq-api.onrender.com/docs'
 
   return (
     <div className="app-container">
@@ -114,7 +110,7 @@ function App() {
         <div className="quick-actions">
           <button 
             className="action-btn"
-            onClick={() => window.open('http://localhost:8000/docs', '_blank')}
+            onClick={() => window.open(API_DOCS_URL, '_blank')}
             title="View API Documentation"
           >
             📊 API Documentation
