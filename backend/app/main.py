@@ -44,14 +44,40 @@ app.add_middleware(
 )
 
 # Import RAG components
+# Import RAG components with detailed error tracking
+HAS_RAG = False
+RAG_ERROR = None
+
 try:
-    from app.core.ingestion import process_document, get_text_from_file
-    from app.core.retrieval import retrieve_relevant_chunks
-    from app.core.generation import generate_answer
+    print("Attempting to import RAG modules...")
+    
+    from app.core.ingestion import IngestionPipeline
+    print("✅ Imported IngestionPipeline")
+    
+    from app.core.retrieval import HybridRetriever
+    print("✅ Imported HybridRetriever")
+    
+    from app.core.generation import AnswerGenerator
+    print("✅ Imported AnswerGenerator")
+    
     HAS_RAG = True
-except ImportError:
-    HAS_RAG = False
-    print("Warning: RAG modules not found, running in demo mode")
+    print("✅ ALL RAG MODULES LOADED SUCCESSFULLY!")
+    
+except ImportError as e:
+    RAG_ERROR = str(e)
+    print(f"❌ ImportError: {e}")
+    import traceback
+    traceback.print_exc()
+    
+except Exception as e:
+    RAG_ERROR = str(e)
+    print(f"❌ General Error: {e}")
+    import traceback
+    traceback.print_exc()
+
+if not HAS_RAG:
+    print(f"⚠️ WARNING: RAG modules not found, running in demo mode")
+    print(f"⚠️ Error details: {RAG_ERROR}")
 
 # Storage
 documents_store = []
