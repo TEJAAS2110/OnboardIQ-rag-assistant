@@ -73,63 +73,58 @@ async def upload_document(file: UploadFile = File(...)):
         # Process document with RAG
         if HAS_RAG:
             try:
-                # Extract text from document
-                text_content = get_text_from_file(file_path)
+                from app.core.ingestion import IngestionPipeline
                 
-                # Process and create chunks
-                chunks = process_document(text_content, file.filename)
+                pipeline = IngestionPipeline()
+                result = pipeline.ingest_document(file_path)
                 
-                # Store chunks in vector store
-                for chunk in chunks:
-                    vector_store.append({
+                if result['success']:
+                    documents_store.append({
                         "file_name": file.filename,
-                        "content": chunk["content"],
-                        "metadata": chunk.get("metadata", {}),
-                        "embedding": chunk.get("embedding")
+                        "file_type": file.filename.split('.')[-1],
+                        "chunk_count": result['chunks_created'],
                     })
-                
-                chunks_created = len(chunks)
-                total_chars = len(text_content)
+                    
+                    return {
+                        "success": True,
+                        "file_name": file.filename,
+                        "chunks_created": result['chunks_created'],
+                        "total_chars": result['total_chars']
+                    }
+                else:
+                    raise Exception(result.get('error', 'Unknown error'))
+                    
             except Exception as e:
                 print(f"RAG processing error: {e}")
-                # Fallback to basic processing
-                chunks_created = 5
-                total_chars = 1000
+                raise HTTPException(status_code=500, detail=str(e))
         else:
-            chunks_created = 5
-            total_chars = 1000
-        
-        # Store document info
-        documents_store.append({
-            "file_name": file.filename,
-            "file_type": file.filename.split('.')[-1],
-            "chunk_count": chunks_created,
-        })
-        
-        return {
-            "success": True,
-            "file_name": file.filename,
-            "chunks_created": chunks_created,
-            "total_chars": total_chars
-        }
+            raise HTTPException(status_code=503, detail="RAG modules not available")
+            
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/documents/list")
-def list_documents():
-    return {
-        "total_documents": len(documents_store),
-        "total_chunks": len(vector_store),
-        "documents": documents_store
-    }
 
 @app.post("/chat/query", response_model=ChatResponse)
 def chat_query(request: ChatRequest):
     try:
-        # Check if we have documents
-        if not vector_store:
+        if not HAS_RAG:
+            raise HTTPException(status_code=503, detail="RAG system not initialized")
+        
+        from app.core.ingestion import IngestionPipeline
+        from app.core.retrieval import HybridRetriever
+        from app.core.generation import AnswerGenerator
+        
+        # Initialize components
+        pipeline = IngestionPipeline()
+        retriever = HybridRetriever(pipeline)
+        generator = AnswerGenerator()
+        
+        # Retrieve relevant chunks
+        chunks = retriever.retrieve(request.query, request.top_k)
+        
+        if not chunks:
             return ChatResponse(
-                answer="No documents uploaded yet. Please upload documents first to ask questions.",
+                answer="No relevant information found. Please upload documents first.",
                 citations=[],
                 confidence=0.0,
                 sources_used=0,
@@ -137,46 +132,24 @@ def chat_query(request: ChatRequest):
                 query=request.query
             )
         
-        # Use RAG if available
-        if HAS_RAG:
-            try:
-                # Retrieve relevant chunks
-                relevant_chunks = retrieve_relevant_chunks(
-                    query=request.query,
-                    vector_store=vector_store,
-                    top_k=request.top_k
-                )
-                
-                # Generate answer using LLM
-                answer_data = generate_answer(
-                    query=request.query,
-                    chunks=relevant_chunks,
-                    conversation_history=request.conversation_history
-                )
-                
-                # Format citations
-                citations = []
-                for i, chunk in enumerate(relevant_chunks[:3]):
-                    citations.append({
-                        "source_id": i + 1,
-                        "file_name": chunk.get("file_name", "unknown"),
-                        "page_number": str(chunk.get("metadata", {}).get("page", "N/A")),
-                        "text_snippet": chunk["content"][:200] + "...",
-                        "full_text": chunk["content"],
-                        "relevance_score": chunk.get("score", 0.0)
-                    })
-                
-                return ChatResponse(
-                    answer=answer_data["answer"],
-                    citations=citations,
-                    confidence=answer_data.get("confidence", 0.85),
-                    sources_used=len(relevant_chunks),
-                    retrieved_chunks=len(relevant_chunks),
-                    query=request.query
-                )
-            except Exception as e:
-                print(f"RAG query error: {e}")
-                # Fall through to demo response
+        # Generate answer
+        result = generator.generate_answer(
+            query=request.query,
+            context_chunks=chunks,
+            conversation_history=request.conversation_history
+        )
+        
+        return ChatResponse(
+            answer=result['answer'],
+            citations=result['citations'],
+            confidence=result['confidence'],
+            sources_used=result['sources_used'],
+            retrieved_chunks=result['retrieved_chunks'],
+            query=request.query
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
         
         # Demo/fallback response
         answer = f"Based on your documents, here's the answer to '{request.query}'. RAG processing is not fully configured. Please set OPENAI_API_KEY and configure vector database."
