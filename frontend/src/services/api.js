@@ -1,6 +1,5 @@
 import axios from 'axios';
 
-// Use environment variable, fallback to your Render URL
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://onboardiiq-api.onrender.com';
 
 const api = axios.create({
@@ -8,6 +7,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: false  // CRITICAL FIX
 });
 
 export const uploadDocument = async (file) => {
@@ -18,6 +18,7 @@ export const uploadDocument = async (file) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    withCredentials: false  // CRITICAL FIX
   });
   
   return response.data;
@@ -46,7 +47,6 @@ export const submitFeedback = async (query, answer, rating) => {
   return response.data;
 };
 
-// Export health check function
 export const checkHealth = async () => {
   const response = await api.get('/health');
   return response.data;
