@@ -60,39 +60,27 @@ class HybridRetriever:
         
         print(f"✅ BM25 index built with {len(self.bm25_docs)} documents")
     
-    def retrieve(self, query: str, top_k: int = None) -> List[Dict[str, Any]]:
-        """
-        Main retrieval method using hybrid approach
-        """
-        if top_k is None:
-            top_k = settings.FINAL_TOP_K
-        
-        print(f"\n🔍 Retrieving for query: '{query[:50]}...'")
-        
-        # Step 1: Semantic search
-        semantic_results = self._semantic_search(query, settings.TOP_K_SEMANTIC)
-        print(f"   Semantic search: {len(semantic_results)} results")
-        
-        # Step 2: Keyword search (BM25)
-        bm25_results = self._bm25_search(query, settings.TOP_K_BM25)
-        print(f"   BM25 search: {len(bm25_results)} results")
-        
-        # Step 3: Fusion (Reciprocal Rank Fusion)
-        fused_results = self._reciprocal_rank_fusion(
-            semantic_results,
-            bm25_results
+   def retrieve(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    try:
+        # Generate query embedding
+        response = self.openai_client.embeddings.create(
+            model=self.embedding_model,
+            input=query
         )
-        print(f"   Fused results: {len(fused_results)}")
+        query_embedding = response.data[0].embedding
         
-        # Step 4: Re-rank top candidates
-        reranked_results = self._rerank(
-            query,
-            fused_results[:settings.TOP_K_RERANK]
-        )
-        print(f"   Re-ranked: {len(reranked_results)}")
+        # Search vector store
+        results = self.pipeline.vector_store.search(query_embedding, top_k)
         
-        # Return top-k
-        return reranked_results[:top_k]
+        return [{
+            'text': r['text'],
+            'metadata': r['metadata'],
+            'score': r['score']
+        } for r in results]
+    
+    except Exception as e:
+        print(f"Retrieval error: {e}")
+        return []
     
     def _semantic_search(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         """Semantic search using embeddings"""
