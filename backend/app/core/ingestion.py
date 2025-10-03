@@ -9,7 +9,6 @@ from app.utils.chunking import SmartChunker
 settings = get_settings()
 
 class SimpleVectorStore:
-    """Simple in-memory vector store - no ChromaDB"""
     def __init__(self):
         self.chunks = []
         self.embeddings = []
@@ -28,7 +27,6 @@ class SimpleVectorStore:
         if not self.embeddings:
             return []
         
-        # Cosine similarity
         query_norm = np.linalg.norm(query_embedding)
         scores = []
         for emb in self.embeddings:
@@ -36,7 +34,6 @@ class SimpleVectorStore:
             similarity = np.dot(query_embedding, emb) / (query_norm * emb_norm)
             scores.append(similarity)
         
-        # Get top K
         top_indices = np.argsort(scores)[-top_k:][::-1]
         
         results = []
@@ -61,7 +58,7 @@ class IngestionPipeline:
             chunk_size=settings.CHUNK_SIZE,
             overlap=settings.CHUNK_OVERLAP
         )
-        print(f"Initialized SimpleVectorStore")
+        print("Initialized SimpleVectorStore")
     
     def ingest_document(self, file_path: str) -> Dict[str, Any]:
         try:
@@ -71,18 +68,18 @@ class IngestionPipeline:
             if not doc_data.get('content'):
                 return {"success": False, "error": "No content extracted"}
             
-            print(f"Chunking document...")
+            print("Chunking document...")
             chunks = self.chunker.chunk_document(
                 doc_data['content'],
                 doc_data['metadata']
             )
             print(f"Created {len(chunks)} chunks")
             
-            print(f"Generating embeddings...")
+            print("Generating embeddings...")
             texts = [c['text'] for c in chunks]
             embeddings = self._generate_embeddings(texts)
             
-            print(f"Storing in vector store...")
+            print("Storing in vector store...")
             metadatas = []
             for chunk in chunks:
                 metadatas.append({
