@@ -1,173 +1,299 @@
-import { useState, useEffect } from 'react'
-import './App.css'
-import ChatInterface from './components/chat/ChatInterface.jsx';
-import { listDocuments, uploadDocument, checkHealth } from './services/api'
+import { useState, useRef, useEffect } from 'react'
+import { sendQuery, submitFeedback } from '../../services/api'
+import './ChatInterface.css'
 
-function App() {
-  const [stats, setStats] = useState({
-    totalDocs: 0,
-    totalChunks: 0,
-  })
-  const [uploadKey, setUploadKey] = useState(0)
-  const [isOnline, setIsOnline] = useState(true)
+export default function ChatInterface({ isOnline }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [language, setLanguage] = useState('English')
+  const messagesEndRef = useRef(null)
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   useEffect(() => {
-    loadStats()
-    checkHealthStatus()
-  }, [uploadKey])
+    scrollToBottom()
+  }, [messages])
 
-  const loadStats = async () => {
-    try {
-      const data = await listDocuments()
-      setStats({
-        totalDocs: data.total_documents,
-        totalChunks: data.total_chunks,
-      })
-      setIsOnline(true)
-    } catch (error) {
-      console.error('Error loading stats:', error)
-      setIsOnline(false)
-    }
-  }
+  const suggestedQuestions = [
+    "How many days of leave do I get?",
+    "What is the dress code policy?",
+    "Who do I contact for IT support?",
+    "How do I apply for remote work?",
+    "What are the working hours?"
+  ]
 
-  const checkHealthStatus = async () => {
-    try {
-      await checkHealth()
-      setIsOnline(true)
-    } catch {
-      setIsOnline(false)
-    }
-  }
+  const handleSend = async (text = input) => {
+    if (!text.trim() || loading) return
 
-  const handleFileUpload = async (event) => {
-    const file = event.target.files[0]
-    if (!file) return
-
-    const maxSize = 10 * 1024 * 1024 // 10MB
-    if (file.size > maxSize) {
-      alert('❌ File too large! Maximum size is 10MB')
+    if (!isOnline) {
+      alert('Backend is offline. Please start the backend server.')
       return
     }
 
-    const uploadBtn = document.querySelector('.upload-btn')
-    const originalText = uploadBtn.textContent
-    uploadBtn.textContent = '⏳ Uploading...'
-    uploadBtn.disabled = true
+    const userMessage = {
+      role: 'user',
+      content: text,
+      timestamp: new Date().toISOString(),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setInput('')
+    setLoading(true)
 
     try {
-      const result = await uploadDocument(file)
+      const languagePrompt = language !== 'English' 
+        ? `Please answer in ${language}. ` 
+        : ''
       
-      if (result.success) {
-        alert(`✅ Document uploaded successfully!\n\n📄 ${result.file_name}\n📊 Created ${result.chunks_created} chunks\n💾 ${(file.size / 1024).toFixed(1)} KB`)
-        setUploadKey(prev => prev + 1)
-      } else {
-        alert('❌ Upload failed: ' + (result.error || 'Unknown error'))
+      const response = await sendQuery(languagePrompt + text, messages)
+      
+      const assistantMessage = {
+        role: 'assistant',
+        content: response.answer,
+        citations: response.citations,
+        confidence: response.confidence,
+        timestamp: new Date().toISOString(),
       }
+
+      setMessages((prev) => [...prev, assistantMessage])
     } catch (error) {
-      console.error('Upload error:', error)
-      alert('❌ Connection error. Make sure backend is running and CORS is enabled')
-      setIsOnline(false)
+      console.error('Error:', error)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Sorry, I encountered an error. Please ensure documents are uploaded and backend server is running.',
+          timestamp: new Date().toISOString(),
+          isError: true
+        },
+      ])
     } finally {
-      uploadBtn.textContent = originalText
-      uploadBtn.disabled = false
-      event.target.value = ''
+      setLoading(false)
     }
   }
 
-  const handleRefresh = () => {
-    setUploadKey(prev => prev + 1)
-    loadStats()
+  const handleFeedback = async (message, rating) => {
+    const userQuery = messages.filter(m => m.role === 'user').slice(-1)[0]?.content || ''
+    try {
+      await submitFeedback(userQuery, message.content, rating)
+      alert('Thank you for your feedback!')
+    } catch (error) {
+      console.error('Feedback error:', error)
+    }
   }
 
-  const API_DOCS_URL = import.meta.env.VITE_API_URL 
-    ? `${import.meta.env.VITE_API_URL}/docs`
-    : 'https://onboardiiq-api.onrender.com/docs'
+  const downloadChat = () => {
+    if (messages.length === 0) {
+      alert('No chat to download yet')
+      return
+    }
+
+    const timestamp = new Date().toLocaleString()
+    let content = `OnboardIQ - Chat Session Export\n`
+    content += `Downloaded: ${timestamp}\n`
+    content += `Language: ${language}\n`
+    content += '='.repeat(70) + '\n\n'
+
+    messages.forEach((msg) => {
+      content += `${msg.role.toUpperCase()}:\n${msg.content}\n`
+      
+      if (msg.citations && msg.citations.length > 0) {
+        content += '\nSources Referenced:\n'
+        msg.citations.forEach(cite => {
+          content += `  - ${cite.file_name} - Page ${cite.page_number}\n`
+          content += `    Relevance: ${(cite.relevance_score * 100).toFixed(1)}%\n`
+        })
+      }
+      
+      if (msg.confidence) {
+        content += `\nConfidence Score: ${(msg.confidence * 100).toFixed(0)}%\n`
+      }
+      
+      content += '\n' + '-'.repeat(70) + '\n\n'
+    })
+
+    content += `\nSession Statistics:\n`
+    content += `Total Messages: ${messages.length}\n`
+    content += `Questions Asked: ${messages.filter(m => m.role === 'user').length}\n`
+    content += `Answers Provided: ${messages.filter(m => m.role === 'assistant').length}\n`
+
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `onboardiq-chat-${Date.now()}.txt`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+
+    alert('Chat session downloaded successfully!')
+  }
+
+  const handleSuggestion = (question) => {
+    setInput(question)
+  }
 
   return (
-    <div className="app-container">
-      <div className="sidebar">
+    <div className="chat-container">
+      <div className="chat-header">
         <div>
-          <h1 className="app-title">🎯 OnboardIQ</h1>
-          <p className="app-subtitle">Intelligent Knowledge Assistant</p>
-        </div>
-
-        <div className="stats-card neon-glow">
-          <h3>📊 Knowledge Base</h3>
-          <div className="stat-item">
-            <span className="stat-label">Documents</span>
-            <span className="stat-value">{stats.totalDocs}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">Knowledge Chunks</span>
-            <span className="stat-value">{stats.totalChunks}</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-label">System Status</span>
-            <span className="stat-value">{isOnline ? '🟢 Online' : '🔴 Offline'}</span>
-          </div>
-        </div>
-
-        <div className="quick-actions">
-          <button 
-            className="action-btn"
-            onClick={() => window.open(API_DOCS_URL, '_blank')}
-            title="View API Documentation"
-          >
-            📊 API Documentation
-          </button>
-          <button 
-            className="action-btn"
-            onClick={handleRefresh}
-            title="Refresh statistics"
-          >
-            🔄 Refresh Statistics
-          </button>
-          <button 
-            className="action-btn"
-            onClick={() => {
-              if (confirm('Clear all chat history? This cannot be undone.')) {
-                window.location.reload()
-              }
-            }}
-            title="Clear chat history"
-          >
-            🗑️ Clear Chat
-          </button>
-        </div>
-
-        <div className="upload-section">
-          <input
-            type="file"
-            id="file-upload"
-            style={{ display: 'none' }}
-            onChange={handleFileUpload}
-            accept=".pdf,.docx,.txt,.md,.html"
-          />
-          <button
-            className="upload-btn"
-            onClick={() => document.getElementById('file-upload').click()}
-          >
-            📤 Upload Document
-          </button>
-          <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '8px', textAlign: 'center' }}>
-            Supports: PDF, DOCX, TXT, MD, HTML (Max 10MB)
+          <h2>Ask anything about your documents</h2>
+          <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: '5px 0 0 0' }}>
+            Powered by Hybrid RAG - {messages.length} messages
           </p>
         </div>
-
-        <div className="footer-section">
-          <p style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', textAlign: 'center' }}>
-            <strong>OnboardIQ v1.0</strong><br/>
-            Powered by Advanced RAG<br/>
-            Hybrid Search • Multi-Language • Citations
-          </p>
-        </div>
+        <button onClick={downloadChat} className="download-btn-header">
+          Export Chat
+        </button>
       </div>
 
-      <div className="main-content">
-        <ChatInterface key={uploadKey} isOnline={isOnline} />
+      <div className="messages-area">
+        {messages.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-state-icon">💬</div>
+            <h2>Welcome to OnboardIQ</h2>
+            <p>Upload documents and start asking questions in any language</p>
+            <div className="suggestions-container">
+              <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', marginBottom: '10px' }}>
+                Try asking:
+              </p>
+              <div className="suggestions-grid">
+                {suggestedQuestions.map((q, i) => (
+                  <button
+                    key={i}
+                    onClick={() => handleSuggestion(q)}
+                    className="suggestion-btn"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {messages.map((message, index) => (
+          <div key={index} className={`message-wrapper ${message.role}`}>
+            <div className={`message-bubble ${message.role} ${message.isError ? 'error' : ''}`}>
+              <div className="message-content">{message.content}</div>
+
+              {message.citations && message.citations.length > 0 && (
+                <div className="citations">
+                  <div className="citations-title">Sources:</div>
+                  {message.citations.map((cite, i) => (
+                    <div key={i} className="citation-item">
+                      <span className="citation-source">[{cite.source_id}]</span>
+                      <span className="citation-text">
+                        {cite.file_name} - Page {cite.page_number}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {message.role === 'assistant' && !message.isError && (
+                <div className="message-feedback">
+                  <button
+                    onClick={() => handleFeedback(message, 'positive')}
+                    className="feedback-btn"
+                    title="Good response"
+                  >
+                    👍
+                  </button>
+                  <button
+                    onClick={() => handleFeedback(message, 'negative')}
+                    className="feedback-btn"
+                    title="Bad response"
+                  >
+                    👎
+                  </button>
+                  {message.confidence && (
+                    <span className="confidence-badge">
+                      {(message.confidence * 100).toFixed(0)}% confidence
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {loading && (
+          <div className="message-wrapper assistant">
+            <div className="loading-message">
+              <div className="typing-dots">
+                <div className="typing-dot"></div>
+                <div className="typing-dot"></div>
+                <div className="typing-dot"></div>
+              </div>
+              <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', marginLeft: '10px' }}>
+                Thinking...
+              </span>
+            </div>
+          </div>
+        )}
+
+        {messages.length > 0 && !loading && (
+          <div className="suggestions-footer">
+            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>
+              Related questions:
+            </p>
+            <div className="suggestions-row">
+              {suggestedQuestions.slice(0, 3).map((q, i) => (
+                <button
+                  key={i}
+                  onClick={() => handleSend(q)}
+                  className="suggestion-btn-small"
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      <div className="input-area">
+        <div className="language-selector">
+          <label>Language:</label>
+          <select value={language} onChange={(e) => setLanguage(e.target.value)}>
+            <option>English</option>
+            <option>Hindi</option>
+            <option>Spanish</option>
+            <option>French</option>
+            <option>German</option>
+            <option>Chinese</option>
+            <option>Japanese</option>
+            <option>Arabic</option>
+          </select>
+          <span className="language-hint">Ask in any language</span>
+        </div>
+        
+        <div className="input-container">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder={`Ask a question in ${language}...`}
+            className="input-field"
+            disabled={loading || !isOnline}
+          />
+          <button
+            onClick={() => handleSend()}
+            disabled={loading || !input.trim() || !isOnline}
+            className="send-btn"
+          >
+            {loading ? '⏳' : '➤'} Send
+          </button>
+        </div>
       </div>
     </div>
   )
 }
-
-export default App
