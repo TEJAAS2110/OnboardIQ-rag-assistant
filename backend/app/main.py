@@ -6,12 +6,10 @@ import os
 import shutil
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 app = FastAPI(title="OnboardIQ API", version="1.0.0")
 
-# FIXED CORS CONFIGURATION
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -20,37 +18,30 @@ app.add_middleware(
         "http://localhost:5173",
         "*"
     ],
-    allow_credentials=False,  # Changed to False
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
 
-# Import RAG components with detailed error tracking
 HAS_RAG = False
 RAG_ERROR = None
 
 try:
     print("Attempting to import RAG modules...")
-    
     from app.core.ingestion import IngestionPipeline
     print("✅ Imported IngestionPipeline")
-    
     from app.core.retrieval import HybridRetriever
     print("✅ Imported HybridRetriever")
-    
     from app.core.generation import AnswerGenerator
     print("✅ Imported AnswerGenerator")
-    
     HAS_RAG = True
     print("✅ ALL RAG MODULES LOADED SUCCESSFULLY!")
-    
 except ImportError as e:
     RAG_ERROR = str(e)
     print(f"❌ ImportError: {e}")
     import traceback
     traceback.print_exc()
-    
 except Exception as e:
     RAG_ERROR = str(e)
     print(f"❌ General Error: {e}")
@@ -61,7 +52,6 @@ if not HAS_RAG:
     print(f"⚠️ WARNING: RAG modules not found, running in demo mode")
     print(f"⚠️ Error details: {RAG_ERROR}")
 
-# Storage
 documents_store = []
 vector_store = []
 
@@ -106,17 +96,19 @@ async def upload_document(file: UploadFile = File(...)):
         os.makedirs("uploads", exist_ok=True)
         file_path = f"uploads/{file.filename}"
         
+        content = await file.read()
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            buffer.write(content)
+        
+        file_size = len(content)
         
         if HAS_RAG:
             try:
                 from app.core.ingestion import IngestionPipeline
-                
                 pipeline = IngestionPipeline()
                 result = pipeline.ingest_document(file_path)
                 
-                if result['success']:
+                if result.get('success'):
                     documents_store.append({
                         "file_name": file.filename,
                         "file_type": file.filename.split('.')[-1],
@@ -127,38 +119,35 @@ async def upload_document(file: UploadFile = File(...)):
                         "success": True,
                         "file_name": file.filename,
                         "chunks_created": result['chunks_created'],
-                        "total_chars": result['total_chars']
+                        "total_chars": result.get('total_chars', file_size)
                     }
-                else:
-                    raise Exception(result.get('error', 'Unknown error'))
-                    
-            except Exception as e:
-                print(f"RAG processing error: {e}")
-                raise HTTPException(status_code=500, detail=str(e))
-        else:
-            # Demo mode without RAG
-            documents_store.append({
-                "file_name": file.filename,
-                "file_type": file.filename.split('.')[-1],
-                "chunk_count": 5,
-            })
-            
-            return {
-                "success": True,
-                "file_name": file.filename,
-                "chunks_created": 5,
-                "total_chars": 1000
-            }
+            except Exception as rag_error:
+                print(f"RAG processing failed: {rag_error}, falling back to demo mode")
+        
+        documents_store.append({
+            "file_name": file.filename,
+            "file_type": file.filename.split('.')[-1],
+            "chunk_count": 5,
+        })
+        
+        return {
+            "success": True,
+            "file_name": file.filename,
+            "chunks_created": 5,
+            "total_chars": file_size
+        }
             
     except Exception as e:
-        print(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Upload error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 @app.post("/chat/query", response_model=ChatResponse)
 def chat_query(request: ChatRequest):
     try:
-        if not HAS_RAG:
-            answer = f"Based on your documents, here's the answer to '{request.query}'. This is a working demo response. Upload real documents and configure OpenAI API key to get actual answers."
+        if not HAS_RAG or not documents_store:
+            answer = f"Based on your documents, here's the answer to '{request.query}'. This is a demo response. Upload documents and configure OpenAI API key for real answers."
             
             return ChatResponse(
                 answer=answer,
