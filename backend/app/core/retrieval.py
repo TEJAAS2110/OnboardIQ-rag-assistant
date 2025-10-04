@@ -22,12 +22,20 @@ class HybridRetriever:
             
             results = self.pipeline.vector_store.search(query_embedding, top_k)
             
-            return [{
-                'text': r['text'],
-                'metadata': r['metadata'],
-                'score': r['score']
-            } for r in results]
+            formatted_results = []
+            for r in results:
+                formatted_results.append({
+                    'text': r['text'],
+                    'metadata': r['metadata'],
+                    'score': r['score'],
+                    'final_score': r['score']
+                })
+            
+            return formatted_results
         
         except Exception as e:
             print(f"Retrieval error: {e}")
             return []
+    
+    def refresh_bm25_index(self):
+        pass
